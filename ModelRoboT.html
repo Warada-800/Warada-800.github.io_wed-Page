@@ -110,7 +110,7 @@ const uvs = [
         scene.add(plane);
 
         const loader = new THREE.GLTFLoader();
-        loader.load(' https://warada-800.github.io/Warada-800.github.io_wed-Page/ROBOT_New_Work.glb', (gltf) => {
+        loader.load(' https://warada-800.github.io/Warada-800.github.io_wed-Page/smallROBOT.glb', (gltf) => {
             const model = gltf.scene;
             model.traverse((child) => {
                 if (child.isMesh) {
