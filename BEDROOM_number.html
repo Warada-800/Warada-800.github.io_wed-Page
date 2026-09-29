@@ -2,16 +2,19 @@
 <html lang="th">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>3D Room Viewer</title>
   <style>
     body { margin: 0; overflow: hidden; background: #222; font-family: sans-serif; }
     #menu {
       position: absolute; bottom: 20px; left: 50%;
       transform: translateX(-50%); display: flex; gap: 8px; z-index: 10;
+      flex-wrap: wrap; justify-content: center; width: 90%; max-width: 600px;
     }
     button {
       padding: 10px 16px; border-radius: 8px; border: none;
       background: white; font-weight: bold; cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.3); transition: 0.2s;
     }
     button:hover { background: #ffaa00; color: white; }
     
@@ -47,12 +50,12 @@
 
   <script>
     // ==========================================
-    // ⚙️ ส่วนที่ 1: ตั้งค่าพิกัด (ปรับแก้ X, Y, Z ตรงนี้)
+    // ⚙️ ส่วนที่ 1: ตั้งค่าพิกัด (คงค่าเดิมทั้งหมด)
     // ==========================================
     
     // 1. แสงแดด (Sun Light)
     const SUN_CONFIG = {
-        x: -0.71, y: 5.08, z: -0.29,
+      x: -0.71, y: 5.08, z: -0.29,
       color: 0xffffff,
       intensity: 1.5
     };
@@ -79,15 +82,14 @@
         camera: { x: 1.65, y: 2.02, z: -1.05 },
         target: { x: 1.99, y: 2.1, z: -1.06 }
       },
-      BED : {
+      BED: {
         camera: { x: 0.72, y: 3.77, z: 2.33 },
         target: { x: -1.33, y: 1.89, z: 0.11 }
       },
-      WINDOW : {
+      WINDOW: {
         camera: { x: -1.74, y: 2.52, z: -0.52 },
         target: { x: -1.66, y: 2.75, z: -1.47 }
-      },
-    
+      }
     };
 
 
@@ -137,20 +139,24 @@
 
 
     // ==========================================
-    // 🎯 ส่วนที่ 4: ฟังก์ชันสลับมุมกล้อง
+    // 🎯 ส่วนที่ 4: ฟังก์ชันสลับมุมกล้อง (แก้กล้องค้าง)
     // ==========================================
     function setView(name, animated = true) {
       const view = CAMERA_VIEWS[name];
       if (!view) return;
 
+      // หยุดแอนิเมชันเก่าทันทีเพื่อไม่ให้กล้องล็อคหรือขัดจังหวะ
+      gsap.killTweensOf(camera.position);
+      gsap.killTweensOf(controls.target);
+
       if (animated) {
         gsap.to(camera.position, {
           x: view.camera.x, y: view.camera.y, z: view.camera.z,
-          duration: 1.2, ease: 'power2.inOut'
+          duration: 1.2, ease: 'power2.out'
         });
         gsap.to(controls.target, {
           x: view.target.x, y: view.target.y, z: view.target.z,
-          duration: 1.2, ease: 'power2.inOut',
+          duration: 1.2, ease: 'power2.out',
           onUpdate: () => controls.update()
         });
       } else {
@@ -162,7 +168,80 @@
 
 
     // ==========================================
-    // 🔍 ส่วนที่ 5: พิมพ์พิกัดกล้อง (Console.log + หน้าจอ)
+    // 🖱️ ส่วนที่ 5: 3D Interaction (แยกการแตะ vs ลากหมุน)
+    // ==========================================
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    let startX = 0;
+    let startY = 0;
+
+    // จำจุดเริ่มต้นที่แตะ
+    window.addEventListener('pointerdown', (event) => {
+      startX = event.clientX;
+      startY = event.clientY;
+    });
+
+    // ตรวจสอบตอนปล่อยนิ้ว/เมาส์
+    window.addEventListener('pointerup', (event) => {
+      // ข้ามถ้าแตะโดนปุ่มเมนู
+      if (event.target.closest('#menu') || (event.target.tagName && event.target.tagName.toLowerCase() === 'button')) {
+        return;
+      }
+
+      // ถ้ามีการลากขยับเกิน 7 pixel ให้ถือว่าตั้งใจหมุนห้อง ไม่เปลี่ยนมุมกล้อง
+      const diffX = Math.abs(event.clientX - startX);
+      const diffY = Math.abs(event.clientY - startY);
+      if (diffX > 7 || diffY > 7) {
+        return;
+      }
+
+      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+      mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+      raycaster.setFromCamera(mouse, camera);
+      const intersects = raycaster.intersectObjects(scene.children, true);
+
+      if (intersects.length > 0) {
+        const hit = intersects.find(item => item.object.type === 'Mesh');
+        if (!hit) {
+          setView('overview');
+          return;
+        }
+
+        const p = hit.point;
+        console.log(`📍 จุดที่กด: X = ${p.x.toFixed(2)}, Y = ${p.y.toFixed(2)}, Z = ${p.z.toFixed(2)}`);
+
+        // แยกโซนตามตำแหน่งโมเดลในห้องนอน:
+        // 1. หน้าต่าง (ฝั่งซ้าย ลึกด้านหลัง)
+        if (p.x < -0.8 && p.z < -0.6) {
+          setView('WINDOW');
+        }
+        // 2. เตียงนอน (ฝั่งซ้ายของห้อง)
+        else if (p.x < -0.2) {
+          setView('BED');
+        }
+        // 3. จอคอม / โต๊ะคอม (ฝั่งขวา ด้านลึก)
+        else if (p.x > 0.7 && p.z < -0.7) {
+          setView('COM');
+        }
+        // 4. จอ TV (ฝั่งขวา)
+        else if (p.x > 0.7 && p.z >= -0.7) {
+          setView('TV');
+        }
+        // 5. พื้นห้อง หรือส่วนอื่นๆ ให้กลับภาพรวม
+        else {
+          setView('overview');
+        }
+      } else {
+        // แตะพื้นที่ว่างภายนอกห้อง
+        setView('overview');
+      }
+    });
+
+
+    // ==========================================
+    // 🔍 ส่วนที่ 6: พิมพ์พิกัดกล้อง (Console.log + หน้าจอ)
     // ==========================================
     const infoBox = document.getElementById('cam-info');
 
@@ -178,20 +257,16 @@
         z: parseFloat(controls.target.z.toFixed(2))
       };
 
-      // 1. แสดงผลบนมุมซ้ายบนของหน้าจอ
       infoBox.innerHTML = `
         📷 Camera: { x: ${cam.x}, y: ${cam.y}, z: ${cam.z} }<br>
         🎯 Target: { x: ${tgt.x}, y: ${tgt.y}, z: ${tgt.z} }
       `;
 
-      // 2. ปริ้นท์ลง Console ในรูปแบบโค้ดพร้อมก๊อบปี้ไปวางใน CAMERA_VIEWS
       console.log(`camera: { x: ${cam.x}, y: ${cam.y}, z: ${cam.z} }, target: { x: ${tgt.x}, y: ${tgt.y}, z: ${tgt.z} }`);
     }
 
-    // ทำงานทุกครั้งที่หมุน/ซูม/เลื่อนกล้องเสร็จ
     controls.addEventListener('end', logCameraPosition);
 
-    // กดปุ่มตัวอักษร 'C' บนแป้นพิมพ์เพื่อสั่งปริ้นท์พิกัดทันทีได้เช่นกัน
     window.addEventListener('keydown', (e) => {
       if (e.key === 'c' || e.key === 'C') {
         console.warn('--- พิกัดมุมมองปัจจุบัน ---');
